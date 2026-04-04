@@ -1,0 +1,1 @@
+from data_loader.loader import load_csv_numeric
