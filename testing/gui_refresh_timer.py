@@ -1,3 +1,7 @@
+"""
+gui_refresh_timer.py
+"""
+
 import time
 
 def timed(label):
