@@ -236,11 +236,31 @@ class AnalysisFrame(ttk.Frame):
             )
             rb.pack(side="left", padx=4)
 
+        self.dual_yaxis = tk.BooleanVar(value=False)
+        ttk.Checkbutton(view_bar, text="Dual Y-Axis", variable=self.dual_yaxis,
+                         command=self._redraw_time_plot).pack(side="left", padx=(12, 4))
+
+        self.show_markers = tk.BooleanVar(value=False)
+        ttk.Checkbutton(view_bar, text="Show Points", variable=self.show_markers,
+                         command=self._redraw_time_plot).pack(side="left", padx=(12, 4))
+
         self.time_fig = Figure(figsize=(7, 4), dpi=100)
         self.time_ax = self.time_fig.add_subplot(111)
         self.time_canvas = FigureCanvasTkAgg(self.time_fig, master=self.time_tab)
         self.time_canvas.get_tk_widget().pack(fill="both", expand=True)
         NavigationToolbar2Tk(self.time_canvas, self.time_tab)
+
+        # Cursor readout label
+        self.cursor_label = ttk.Label(self.time_tab, text="", anchor="w",
+                                       font=("Courier", 10))
+        self.cursor_label.pack(fill="x", padx=6, pady=(0, 2))
+
+        # Store series data for hover lookup
+        self._hover_t = None
+        self._hover_raw = None
+        self._hover_proc = None
+        self._vline = None
+        self.time_canvas.mpl_connect("motion_notify_event", self._on_time_hover)
 
         # Tab 2: FFT
         self.fft_tab = ttk.Frame(self.nb)
@@ -419,21 +439,26 @@ class AnalysisFrame(ttk.Frame):
         mode = self.time_view_mode.get()
         has_processing = self.app.processing_applied
         self.time_fig.clear()
+        mkr = dict(marker="o", markersize=3) if self.show_markers.get() else {}
 
-        # When normalize is enabled, scale both raw and processed to the same range
+        # When normalize is enabled, scale only the processed signal
         if self.do_norm.get() and normalize is not None and has_processing:
-            y_raw = normalize(y_raw)
             y_proc = normalize(y_proc)
 
         # If no processing applied yet, just show raw regardless of view mode
         if not has_processing:
             ax = self.time_fig.add_subplot(111)
             self.time_ax = ax
-            ax.plot(t, y_raw, color="tab:blue", linewidth=0.8, label="Raw")
+            ax.plot(t, y_raw, color="tab:blue", linewidth=0.8, label="Raw", **mkr)
             ax.legend(loc="upper right")
             ax.set_title(f"Time Domain — {sig_type}")
             ax.set_xlabel("Time (s)")
             ax.set_ylabel("Amplitude")
+            ax.grid(True, alpha=0.3)
+            self._hover_t = t
+            self._hover_raw = y_raw
+            self._hover_proc = None
+            self._vline = None
             self.time_fig.tight_layout()
             self.time_canvas.draw()
             return
@@ -442,43 +467,96 @@ class AnalysisFrame(ttk.Frame):
             # Independent y-axes so each panel auto-scales to its own data
             ax1 = self.time_fig.add_subplot(1, 2, 1)
             ax2 = self.time_fig.add_subplot(1, 2, 2)
-            ax1.plot(t, y_raw, color="tab:blue", linewidth=0.8)
+            ax1.plot(t, y_raw, color="tab:blue", linewidth=0.8, **mkr)
             ax1.set_title(f"Raw — {sig_type}")
             ax1.set_xlabel("Time (s)")
             ax1.set_ylabel("Amplitude")
-            ax2.plot(t, y_proc, color="tab:orange", linewidth=1.0)
+            ax1.grid(True, alpha=0.3)
+            ax2.plot(t, y_proc, color="tab:orange", linewidth=1.0, **mkr)
             ax2.set_title(f"Processed — {sig_type}")
             ax2.set_xlabel("Time (s)")
             ax2.set_ylabel("Amplitude")
+            ax2.grid(True, alpha=0.3)
             self.time_ax = ax1  # keep reference for toolbar
         elif mode == "Overlay":
             ax = self.time_fig.add_subplot(111)
             self.time_ax = ax
-            ax.plot(t, y_raw, alpha=0.55, color="tab:blue", label="Raw", linewidth=0.8)
-            ax.plot(t, y_proc, alpha=0.85, color="tab:orange", label="Processed", linewidth=1.0)
-            ax.set_ylabel("Amplitude")
-            ax.legend(loc="upper right")
+            if self.dual_yaxis.get():
+                ax.plot(t, y_raw, alpha=0.7, color="tab:blue", label="Raw", linewidth=0.8, **mkr)
+                ax.set_ylabel("Raw", color="tab:blue")
+                ax.tick_params(axis="y", labelcolor="tab:blue")
+                ax2 = ax.twinx()
+                ax2.plot(t, y_proc, alpha=0.85, color="tab:orange", label="Processed", linewidth=1.0, **mkr)
+                ax2.set_ylabel("Processed", color="tab:orange")
+                ax2.tick_params(axis="y", labelcolor="tab:orange")
+                lines1, labels1 = ax.get_legend_handles_labels()
+                lines2, labels2 = ax2.get_legend_handles_labels()
+                ax.legend(lines1 + lines2, labels1 + labels2, loc="upper right")
+            else:
+                ax.plot(t, y_raw, alpha=0.55, color="tab:blue", label="Raw", linewidth=0.8, **mkr)
+                ax.plot(t, y_proc, alpha=0.85, color="tab:orange", label="Processed", linewidth=1.0, **mkr)
+                ax.set_ylabel("Amplitude")
+                ax.legend(loc="upper right")
             ax.set_title(f"Time Domain — {sig_type}")
             ax.set_xlabel("Time (s)")
+            ax.grid(True, alpha=0.3)
         elif mode == "Raw Only":
             ax = self.time_fig.add_subplot(111)
             self.time_ax = ax
-            ax.plot(t, y_raw, color="tab:blue", linewidth=0.8, label="Raw")
+            ax.plot(t, y_raw, color="tab:blue", linewidth=0.8, label="Raw", **mkr)
             ax.legend(loc="upper right")
             ax.set_title(f"Time Domain — {sig_type}")
             ax.set_xlabel("Time (s)")
             ax.set_ylabel("Amplitude")
+            ax.grid(True, alpha=0.3)
         elif mode == "Processed Only":
             ax = self.time_fig.add_subplot(111)
             self.time_ax = ax
-            ax.plot(t, y_proc, color="tab:orange", linewidth=1.0, label="Processed")
+            ax.plot(t, y_proc, color="tab:orange", linewidth=1.0, label="Processed", **mkr)
             ax.legend(loc="upper right")
             ax.set_title(f"Time Domain — {sig_type}")
             ax.set_xlabel("Time (s)")
             ax.set_ylabel("Amplitude")
+            ax.grid(True, alpha=0.3)
+
+        # Store series for hover readout
+        self._hover_t = t
+        if mode in ("Raw Only", "Overlay", "Side by Side"):
+            self._hover_raw = y_raw
+        else:
+            self._hover_raw = None
+        if mode in ("Processed Only", "Overlay", "Side by Side"):
+            self._hover_proc = y_proc
+        else:
+            self._hover_proc = None
+        self._vline = None
 
         self.time_fig.tight_layout()
         self.time_canvas.draw()
+
+    def _on_time_hover(self, event):
+        """Show signal values at the cursor's x position."""
+        if event.inaxes is None or self._hover_t is None:
+            self.cursor_label.config(text="")
+            return
+
+        x = event.xdata
+        t = self._hover_t
+        parts = [f"t = {x:.4f}s"]
+
+        if self._hover_raw is not None:
+            idx = np.searchsorted(t, x, side="left")
+            idx = np.clip(idx, 0, len(t) - 1)
+            val = self._hover_raw[idx]
+            parts.append(f"Raw = {val:.4f}" if np.isfinite(val) else "Raw = NaN")
+
+        if self._hover_proc is not None:
+            idx = np.searchsorted(t, x, side="left")
+            idx = np.clip(idx, 0, len(t) - 1)
+            val = self._hover_proc[idx]
+            parts.append(f"Processed = {val:.4f}" if np.isfinite(val) else "Processed = NaN")
+
+        self.cursor_label.config(text="    ".join(parts))
 
     def _on_tab_changed(self, _event=None):
         """Draw a tab's content on demand when the user switches to it."""
@@ -509,7 +587,7 @@ class AnalysisFrame(ttk.Frame):
             self._draw_stats()
 
     def _draw_fft(self):
-        t, _ = self.get_selected_series()
+        t, y_raw = self.get_selected_series()
         y_proc = np.asarray(self.app.processed, dtype=float)
         sig_type = self.signal_type.get()
 
@@ -519,9 +597,21 @@ class AnalysisFrame(ttk.Frame):
 
         self.fft_ax.clear()
         if compute_fft is not None and dominant_frequency is not None and fs is not None:
-            freqs, mag = compute_fft(y_proc, fs)
-            dom_freq = dominant_frequency(freqs, mag)
-            self.fft_ax.plot(freqs, mag, linewidth=0.9)
+            freqs_proc, mag_proc = compute_fft(y_proc, fs)
+            dom_freq = dominant_frequency(freqs_proc, mag_proc)
+
+            if self.app.processing_applied:
+                freqs_raw, mag_raw = compute_fft(
+                    interpolate_nans(y_raw) if interpolate_nans is not None else y_raw,
+                    fs,
+                )
+                self.fft_ax.plot(freqs_raw, mag_raw, linewidth=0.8,
+                                 color="#1f77b4", alpha=0.45, label="Raw")
+                self.fft_ax.plot(freqs_proc, mag_proc, linewidth=0.9,
+                                 color="#ff7f0e", label="Processed")
+            else:
+                self.fft_ax.plot(freqs_proc, mag_proc, linewidth=0.9)
+
             self.fft_ax.axvline(dom_freq, color="r", linestyle="--", alpha=0.6,
                                 label=f"Dominant: {dom_freq:.2f} Hz")
             self.fft_ax.legend(loc="upper right")
@@ -530,6 +620,7 @@ class AnalysisFrame(ttk.Frame):
         self.fft_ax.set_title(f"FFT Magnitude — {sig_type}")
         self.fft_ax.set_xlabel("Frequency (Hz)")
         self.fft_ax.set_ylabel("Magnitude")
+        self.fft_ax.grid(True, alpha=0.3)
         self.fft_fig.tight_layout()
         self.fft_canvas.draw()
         self._stale_tabs["fft"] = False
@@ -551,6 +642,9 @@ class AnalysisFrame(ttk.Frame):
 
         if fs is not None:
             self.stats_text.insert("end", f"  Sampling Rate : {fs:.2f} Hz\n")
+
+        duration = float(t[-1] - t[0]) if len(t) > 1 else 0.0
+        self.stats_text.insert("end", f"  Duration      : {duration:.4f} s\n")
 
         self.stats_text.insert("end", "\n  ── Basic Statistics ─────────────────\n\n")
         if compute_stats is not None:

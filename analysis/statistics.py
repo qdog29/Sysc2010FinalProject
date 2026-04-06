@@ -34,6 +34,7 @@ def compute_stats(signal):
         raise ValueError("Signal contains no finite values (all NaN or Inf).")
     return {
         "mean": compute_mean(y),
+        "median": float(np.nanmedian(y)),
         "std": compute_std(y),
         "rms": compute_rms(y),
         "peak_to_peak": compute_peak_to_peak(y),

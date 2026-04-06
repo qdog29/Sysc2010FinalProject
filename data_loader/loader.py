@@ -69,13 +69,6 @@ def load_csv_numeric(path):
     data = np.column_stack([t] + sensor_arrays)
     headers = [first_col] + sensor_cols
 
-    for c in range(data.shape[1]):
-        col = data[:, c]
-        mask = np.isnan(col)
-        if mask.any() and not mask.all():
-            good = np.where(~mask)[0]
-            data[mask, c] = np.interp(np.where(mask)[0], good, col[good])
-
     valid = np.isfinite(data[:, 0])
     data = data[valid]
     if data.shape[0] == 0:

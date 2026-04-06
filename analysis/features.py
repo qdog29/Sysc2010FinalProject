@@ -7,23 +7,25 @@ from scipy.signal import find_peaks
 
 
 def extract_ecg_features(signal, fs) -> dict:
-
     signal = np.asarray(signal, dtype=float)
-    # R-peaks: prominent, at least 0.3 s apart
     min_distance = int(fs * 0.3)
-    prominence = 0.5 * np.std(signal)
-    peaks, _ = find_peaks(signal, distance=min_distance, prominence=prominence)
+    height_threshold = 0.4 * np.max(signal)
+    peaks, _ = find_peaks(signal, distance=min_distance, height=height_threshold)
 
     r_peak_count = int(len(peaks))
-    features = {"r_peak_count": r_peak_count}
+    features: dict[str, float | int] = {"r_peak_count": r_peak_count}
 
     if r_peak_count >= 2:
         intervals = np.diff(peaks) / fs
         mean_interval = np.mean(intervals)
         bpm = 60.0 / mean_interval if mean_interval > 0 else 0.0
         features["heart_rate_bpm"] = round(bpm, 1)
+        features["mean_rr_interval_s"] = round(float(mean_interval), 4)
+        features["std_rr_interval_s"] = round(float(np.std(intervals)), 4)
     else:
         features["heart_rate_bpm"] = 0.0
+        features["mean_rr_interval_s"] = 0.0
+        features["std_rr_interval_s"] = 0.0
 
     features["peak_to_peak_amplitude"] = round(float(np.max(signal) - np.min(signal)), 4)
     return features
@@ -57,8 +59,10 @@ def extract_respiration_features(signal, fs) -> dict:
         band_mags = magnitudes[mask]
         dom_freq = band_freqs[np.argmax(band_mags)]
         features["breathing_rate_bpm"] = round(float(dom_freq * 60.0), 1)
+        features["mean_breath_interval_s"] = round(1.0 / float(dom_freq), 4)
     else:
         features["breathing_rate_bpm"] = 0.0
+        features["mean_breath_interval_s"] = 0.0
 
     return features
 
@@ -69,6 +73,7 @@ def extract_motion_features(signal, fs) -> dict:
     return {
         "activity_intensity_rms": round(float(np.sqrt(np.mean(signal ** 2))), 4),
         "peak_acceleration": round(float(np.max(np.abs(signal))), 4),
+        "mean_acceleration_ms2": round(float(np.nanmean(signal)), 4),
     }
 
 

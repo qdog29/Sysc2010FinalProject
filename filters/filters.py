@@ -78,6 +78,12 @@ def apply_filter(signal: np.ndarray, fs: float, ftype: str, method: str,
             return apply_bandpass_iir(signal, cutoff_low, cutoff_high, fs, order=order)
     elif method == "FIR":
         numtaps = order * 25 + 1  # reasonable FIR length from filter order
+        max_taps = len(signal) // 3 - 1
+        if max_taps < 3:
+            raise ValueError(f"Signal too short ({len(signal)} samples) for FIR filtering.")
+        if max_taps % 2 == 0:
+            max_taps -= 1  # firwin needs odd numtaps for highpass/bandpass
+        numtaps = min(numtaps, max_taps)
         if ftype == "LPF":
             assert cutoff_high is not None
             return apply_lowpass_fir(signal, cutoff_high, fs, numtaps=numtaps)

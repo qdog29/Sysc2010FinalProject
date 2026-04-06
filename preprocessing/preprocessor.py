@@ -21,12 +21,14 @@ def interpolate_nans(y: np.ndarray) -> np.ndarray:
 
 
 def normalize(y: np.ndarray) -> np.ndarray:
-
+    
     y = np.asarray(y, dtype=float)
-    lo, hi = np.nanmin(y), np.nanmax(y)
-    if hi == lo:
-        return np.zeros_like(y)
-    return (y - lo) / (hi - lo) * 2 - 1
+    if len(y) == 0:
+        raise ValueError("Signal cannot be empty")
+    max_val = np.max(np.abs(y))
+    if max_val == 0:
+        return y.copy()
+    return y / max_val
 
 
 def remove_baseline(signal: np.ndarray, fs: float, cutoff: float) -> np.ndarray:
